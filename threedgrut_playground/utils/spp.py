@@ -35,7 +35,7 @@ class SPP:
         """
         mode = mode.lower()
         assert mode in ("none", "independent_random", "low_discrepancy_seq", "msaa")
-        assert mode == "msaa" and spp in (1, 2, 4, 8, 16), "MSAA supports only power of 2 spp within [2,16]"
+        assert mode != "msaa" or spp in (1, 2, 4, 8, 16), "MSAA supports only power of 2 spp within [2,16]"
 
         self.spp = spp
         self.mode = mode

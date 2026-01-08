@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 import kaolin
+from omegaconf import OmegaConf
 import torch
 from kaolin.render.camera import (
     Camera,
@@ -561,6 +562,101 @@ class Primitives:
             refractive_index_tensor=refractive_index_tensor.float(),
             transform=transform,
         )
+        self.dirty = True
+
+    def update_primitive_transform(self, name: str, transform: ObjectTransform) -> None:
+        """Updates a primitive's rigid transform without changing topology."""
+        if name not in self.objects:
+            raise KeyError(f"Primitive '{name}' not found")
+        self.objects[name].transform = transform
+        self.dirty = True
+
+    def update_primitive_vertices(self, name: str, vertices, vertex_normals=None) -> None:
+        """Updates a primitive's vertices (and optional normals) without changing topology."""
+        if name not in self.objects:
+            raise KeyError(f"Primitive '{name}' not found")
+        prim = self.objects[name]
+        v = torch.as_tensor(vertices, device=prim.vertices.device, dtype=torch.float32)
+        if v.shape != prim.vertices.shape:
+            raise ValueError("Vertex shape mismatch; topology change requires full rebuild")
+        prim.vertices = v
+        if vertex_normals is not None:
+            n = torch.as_tensor(vertex_normals, device=prim.vertices.device, dtype=torch.float32)
+            if n.shape != prim.vertex_normals.shape:
+                raise ValueError("Normal shape mismatch")
+            prim.vertex_normals = n
+        self.dirty = True
+
+    def add_or_update_mesh_from_data(
+        self,
+        name: str,
+        vertices,
+        faces,
+        device,
+        primitive_type: OptixPrimitiveTypes = OptixPrimitiveTypes.DIFFUSE,
+        vertex_normals=None,
+        material_id: int = 0,
+        transform: Optional[ObjectTransform] = None,
+    ) -> None:
+        """Adds or updates a mesh primitive directly from in-memory data."""
+        v = torch.as_tensor(vertices, device=device, dtype=torch.float32)
+        f = torch.as_tensor(faces, device=device, dtype=torch.int32)
+        f_long = f.to(torch.long)
+
+        existing = self.objects.get(name)
+        if existing is not None:
+            same_topology = existing.triangles.shape == f.shape and torch.equal(existing.triangles, f)
+            if same_topology:
+                existing.vertices = v
+                if vertex_normals is not None:
+                    existing.vertex_normals = torch.as_tensor(vertex_normals, device=device, dtype=torch.float32)
+                if transform is not None:
+                    existing.transform = transform
+                self.dirty = True
+                return
+
+        if vertex_normals is None:
+            v0 = v[f_long[:, 0]]
+            v1 = v[f_long[:, 1]]
+            v2 = v[f_long[:, 2]]
+            fn = torch.nn.functional.normalize(torch.cross(v1 - v0, v2 - v0), dim=-1)
+            vertex_normals = torch.zeros_like(v)
+            vertex_normals.index_add_(0, f_long[:, 0], fn)
+            vertex_normals.index_add_(0, f_long[:, 1], fn)
+            vertex_normals.index_add_(0, f_long[:, 2], fn)
+            vertex_normals = torch.nn.functional.normalize(vertex_normals, dim=-1)
+        else:
+            vertex_normals = torch.as_tensor(vertex_normals, device=device, dtype=torch.float32)
+
+        num_verts = v.shape[0]
+        num_faces = f.shape[0]
+        has_tangents = torch.zeros([num_verts, 1], device=device, dtype=torch.bool)
+        vertex_tangents = torch.zeros([num_verts, 3], device=device, dtype=torch.float32)
+        material_uv = torch.zeros([num_faces, 3, 2], device=device, dtype=torch.float32)
+        material_id_tensor = f.new_full((num_faces, 1), int(material_id))
+
+        if transform is None:
+            transform = ObjectTransform(device=device)
+
+        self.objects[name] = OptixPrimitive(
+            geometry_type=name,
+            vertices=v,
+            triangles=f,
+            vertex_normals=vertex_normals,
+            has_tangents=has_tangents,
+            vertex_tangents=vertex_tangents,
+            material_uv=material_uv,
+            material_id=material_id_tensor,
+            primitive_type=primitive_type,
+            primitive_type_tensor=f.new_full((num_faces,), primitive_type.value),
+            reflectance_scatter=f.new_zeros((num_faces,), dtype=torch.float32),
+            refractive_index=Primitives.DEFAULT_REFRACTIVE_INDEX,
+            refractive_index_tensor=f.new_full(
+                (num_faces,), Primitives.DEFAULT_REFRACTIVE_INDEX, dtype=torch.float32
+            ),
+            transform=transform,
+        )
+        self.dirty = True
 
     def remove_primitive(self, name: str) -> None:
         """Removes a primitive from the scene and updates the BVH.
@@ -811,7 +907,12 @@ class Engine3DGRUT:
     ANTIALIASING_MODES = ["4x MSAA", "8x MSAA", "16x MSAA", "Quasi-Random (Sobol)"]
 
     def __init__(
-        self, gs_object: str, mesh_assets_folder: str, default_config: str, envmap_assets_folder: Optional[str] = None
+        self,
+        gs_object: str,
+        mesh_assets_folder: str,
+        default_config: str,
+        envmap_assets_folder: Optional[str] = None,
+        add_default_sphere: bool = True,
     ):
         self.scene_mog, self.scene_name = self.load_3dgrt_object(gs_object, config_name=default_config)
         self.tracer = Tracer(self.scene_mog.conf)
@@ -849,9 +950,10 @@ class Engine3DGRUT:
         self.primitives = Primitives(
             tracer=self.tracer, mesh_assets_folder=mesh_assets_folder, scene_scale=scene_scale, device=self.device
         )
-        self.primitives.add_primitive(
-            geometry_type="Sphere", primitive_type=OptixPrimitiveTypes.GLASS, device=self.device
-        )
+        if add_default_sphere:
+            self.primitives.add_primitive(
+                geometry_type="Sphere", primitive_type=OptixPrimitiveTypes.GLASS, device=self.device
+            )
         self.rebuild_bvh(self.scene_mog)
 
         self.last_state = dict(camera=None, rgb=None, opacity=None)
@@ -983,7 +1085,7 @@ class Engine3DGRUT:
         pred_opacity = rendered_results["pred_opacity"]
 
         # If no envmap is used for background, saturate the color channels by blending the mog background
-        if envmap is None or not self.environment.is_ignore_envmap():
+        if envmap is None or self.environment.is_ignore_envmap():
             poses = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]], dtype=torch.float32)
             pred_rgb, pred_opacity = mog.background(
                 poses.contiguous(), rendered_results["last_ray_d"].contiguous(), pred_rgb, pred_opacity, False
@@ -1173,11 +1275,12 @@ class Engine3DGRUT:
         """
 
         def load_default_config():
-            from hydra.compose import compose
-            from hydra.initialize import initialize
+            # from hydra.compose import compose
+            # from hydra.initialize import initialize
 
-            with initialize(version_base=None, config_path="../configs"):
-                conf = compose(config_name=config_name)
+            # with initialize(version_base=None, config_path="../configs"):
+            #     conf = compose(config_name=config_name)
+            conf = OmegaConf.load(config_name)
             return conf
 
         if object_path.endswith(".pt"):
