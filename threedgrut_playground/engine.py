@@ -946,6 +946,10 @@ class Engine3DGRUT:
         self.max_pbr_bounces = 15
         """ If enabled, will use the optix denoiser as post-processing """
         self.use_optix_denoiser = True
+        """ If enabled, clamp RGB before denoising. """
+        self.clip_before_denoiser = False
+        """ Upper clamp value for pre-denoiser clipping. """
+        self.clip_before_denoiser_value = 1.0
         """ If enabled, envmap contributes only on secondary ray misses (primary miss uses Gaussian background). """
         self.envmap_secondary_only = False
         """ If enabled, envmap/background contributes opaque alpha on miss. """
@@ -1209,6 +1213,8 @@ class Engine3DGRUT:
         # Keep a noisy version of the accumulated rgb buffer so we don't repeat denoising per frame
         rb["rgb_buffer"] = rb["rgb"]
         if self.use_optix_denoiser:
+            if self.clip_before_denoiser:
+                rb["rgb"] = torch.clamp(rb["rgb"], 0.0, self.clip_before_denoiser_value)
             rb["rgb"] = self.tracer.denoise(rb["rgb"])
 
         if rays.mask is not None:  # mask is for masking away pixels out of view for, i.e. fisheye
