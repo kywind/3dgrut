@@ -149,6 +149,7 @@ public:
                 bool shouldSyncMaterials,
                 torch::Tensor refractiveIndex,
                 torch::Tensor envmap,
+                float envmapIntensity,
                 torch::Tensor envmapOffset,
                 const unsigned int maxPBRBounces);
 

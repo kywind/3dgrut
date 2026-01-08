@@ -189,6 +189,7 @@ class Tracer:
         is_sync_materials=True,
         refractive_index=None,
         envmap=None,
+        envmap_intensity=1.0,
         envmap_offset=None,
         max_pbr_bounces=7,
     ):
@@ -206,8 +207,10 @@ class Tracer:
             materials = [self.to_native_pbr_material(m) for m in materials]
         if envmap is None:
             envmap = torch.zeros([4, 4, 4], dtype=torch.float32)
+        if envmap_intensity is None:
+            envmap_intensity = 1.0
         if envmap_offset is None:
-            envmap = torch.zeros([2], dtype=torch.float32)
+            envmap_offset = torch.zeros([2], dtype=torch.float32)
 
         poses = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]], dtype=torch.float32)
 
@@ -250,6 +253,7 @@ class Tracer:
                 is_sync_materials,
                 refractive_index,
                 envmap,
+                float(envmap_intensity),
                 envmap_offset,
                 max_pbr_bounces,
             )

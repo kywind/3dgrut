@@ -109,13 +109,13 @@ class Environment:
     def set_env(self, env_name: Optional[str] = None) -> None:
         if env_name == "Model-Background":
             self._hdr_data = None
-            self.envmap = torch.zeros([512, 512, 4], dtype=torch.float32, device=self.device)
+            self.envmap = np.zeros([512, 512, 4], dtype=np.float32)
         elif env_name == "Black":
-            self._hdr_data = None
-            self.envmap = torch.zeros([512, 512, 4], dtype=torch.float32, device=self.device)
+            self._hdr_data = np.zeros([512, 512, 4], dtype=np.float32)
+            self._update()
         elif env_name == "White":
-            self._hdr_data = None
-            self.envmap = torch.ones([512, 512, 4], dtype=torch.float32, device=self.device)
+            self._hdr_data = np.ones([512, 512, 4], dtype=np.float32)
+            self._update()
         else:
             self.envmap = self._load_hdr(env_name)
         self.current_name = env_name
@@ -187,7 +187,7 @@ class Environment:
         return (
             self._last_update_details.get("current_name") != self.current_name
             or self._last_update_details.get("tonemapper") != self.tonemapper
-            or self._last_update_details.get("ibl_intensity") != self.exposure
+            or self._last_update_details.get("ibl_intensity") != self.ibl_intensity
             or self._last_update_details.get("exposure") != self.exposure
             or self._last_update_details.get("envmap_offset") != self.envmap_offset
         )

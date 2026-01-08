@@ -304,6 +304,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     bool shouldSyncMaterials,
     torch::Tensor refractiveIndex,
     torch::Tensor envmap,
+    float envmapIntensity,
     torch::Tensor envmapOffset,
     const unsigned int maxPBRBounces) {
 
@@ -359,6 +360,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     paramsHost.playgroundOpts = playgroundOpts;
     paramsHost.triHandle = _playgroundState->gasHandle;
     paramsHost.trace_state = packed_accessor32<int32_t, 4>(traceState);
+    paramsHost.envmapIntensity = envmapIntensity;
     CudaTexture2DFloat4Object cuEnvMap = CudaTexture2DFloat4Object();
     int envmapHeight = envmap.size(0);
     int envmapWidth = envmap.size(1);

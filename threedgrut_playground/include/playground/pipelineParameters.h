@@ -52,6 +52,7 @@ struct PlaygroundPipelineParameters: PipelineParameters
     PackedTensorAccessor32<float, 3> rayMaxT; ///< ray max t for termination
     cudaTextureObject_t envmap;               // for envmaps and solid background color
     float2 envmapOffset;                      // rotates env map along (theta, phi) axis
+    float envmapIntensity;                    // IBL intensity used to pre-scale envmap
 
     // -- Playground specific launch params --
     OptixTraversableHandle triHandle;   // Handle to BVH of mesh primitives: mirrors, glasses, pbr..

@@ -36,7 +36,10 @@ enum PlaygroundRenderOptions
     PGRNDRenderNone = 0,
     PGRNDRenderSmoothNormals = 1<<0,           // Geometry: If enabled, will interpolate precomputed vertex normals
     PGRNDRenderDisableGaussianTracing = 1<<1,  // Disable Gaussian tracing -- only meshes will be rendered
-    PGRNDRenderDisablePBRTextures = 1<<2       // Disable PBR textures, use base material values only
+    PGRNDRenderDisablePBRTextures = 1<<2,      // Disable PBR textures, use base material values only
+    PGRNDRenderEnvmapSecondaryOnly = 1<<3,     // Use envmap only for secondary rays (bounced rays)
+    PGRNDRenderEnvmapOpaque = 1<<4,            // Treat envmap/background as opaque in output alpha
+    PGRNDRenderEnvmapPrimaryIgnoreIntensity = 1<<5 // Ignore envmap intensity for primary ray misses
 };
 
 enum GltfAlphaMode

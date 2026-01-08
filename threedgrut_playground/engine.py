@@ -130,6 +130,9 @@ class OptixPlaygroundRenderOptions(IntEnum):
     SMOOTH_NORMALS = 1  # Use smooth interpolated normals for shading
     DISABLE_GAUSSIAN_TRACING = 2  # Disable Gaussian volumetric tracing
     DISABLE_PBR_TEXTURES = 4  # Disable PBR textures
+    ENVMAP_SECONDARY_ONLY = 8  # Use envmap only for secondary rays (bounced rays)
+    ENVMAP_OPAQUE = 16  # Treat envmap/background as opaque in output alpha
+    ENVMAP_PRIMARY_IGNORE_INTENSITY = 32  # Ignore envmap intensity for primary ray misses
 
 
 class OptixPrimitiveTypes(IntEnum):
@@ -943,6 +946,12 @@ class Engine3DGRUT:
         self.max_pbr_bounces = 15
         """ If enabled, will use the optix denoiser as post-processing """
         self.use_optix_denoiser = True
+        """ If enabled, envmap contributes only on secondary ray misses (primary miss uses Gaussian background). """
+        self.envmap_secondary_only = False
+        """ If enabled, envmap/background contributes opaque alpha on miss. """
+        self.envmap_opaque = False
+        """ If enabled, envmap intensity is ignored for primary ray misses. """
+        self.envmap_primary_ignore_intensity = False
         """ Enables / disables gaussian rendering """
         self.disable_gaussian_tracing = False
 
@@ -1049,6 +1058,12 @@ class Engine3DGRUT:
             playground_render_opts |= OptixPlaygroundRenderOptions.DISABLE_GAUSSIAN_TRACING
         if self.primitives.disable_pbr_textures:
             playground_render_opts |= OptixPlaygroundRenderOptions.DISABLE_PBR_TEXTURES
+        if self.envmap_secondary_only:
+            playground_render_opts |= OptixPlaygroundRenderOptions.ENVMAP_SECONDARY_ONLY
+        if self.envmap_opaque:
+            playground_render_opts |= OptixPlaygroundRenderOptions.ENVMAP_OPAQUE
+        if self.envmap_primary_ignore_intensity:
+            playground_render_opts |= OptixPlaygroundRenderOptions.ENVMAP_PRIMARY_IGNORE_INTENSITY
 
         self.primitives.rebuild_bvh_if_needed()
 
@@ -1058,6 +1073,7 @@ class Engine3DGRUT:
         # otherwise: no background color will be blended (== pixels are blended with black).
         envmap = self.environment.get_envmap()
         envmap_offset = self.environment.get_envmap_offset()
+        envmap_intensity = self.environment.ibl_intensity
 
         rendered_results = self.tracer.render_playground(
             gaussians=mog,
@@ -1077,19 +1093,22 @@ class Engine3DGRUT:
             is_sync_materials=self.is_materials_dirty,
             refractive_index=self.primitives.stacked_fields.refractive_index_tensor[:, None],
             envmap=envmap,
+            envmap_intensity=envmap_intensity,
             envmap_offset=envmap_offset,
             max_pbr_bounces=self.max_pbr_bounces,
         )
 
-        pred_rgb = rendered_results["pred_rgb"]
-        pred_opacity = rendered_results["pred_opacity"]
-
+        # pred_rgb = rendered_results["pred_rgb"]
+        # pred_opacity = rendered_results["pred_opacity"]
         # If no envmap is used for background, saturate the color channels by blending the mog background
-        if envmap is None or self.environment.is_ignore_envmap():
-            poses = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]], dtype=torch.float32)
-            pred_rgb, pred_opacity = mog.background(
-                poses.contiguous(), rendered_results["last_ray_d"].contiguous(), pred_rgb, pred_opacity, False
-            )
+        # if envmap is None or self.environment.is_ignore_envmap() or self.envmap_secondary_only:
+        #     poses = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]], dtype=torch.float32)
+        #     pred_rgb, pred_opacity = mog.background(
+        #         poses.contiguous(), rendered_results["last_ray_d"].contiguous(), pred_rgb, pred_opacity, False
+        #     )
+        # pred_rgb = torch.clamp(pred_rgb, 0.0, 1.0)  # Make sure image pixels are in valid range
+        # rendered_results["pred_rgb"] = pred_rgb
+        # rendered_results["pred_opacity"] = pred_opacity
 
         # Mark materials as uploaded
         self.is_materials_dirty = False
@@ -1097,9 +1116,6 @@ class Engine3DGRUT:
         # Advance frame id (for i.e., random number generator) and avoid int32 overflow
         self.frame_id = self.frame_id + self.spp.batch_size if self.frame_id <= (2**31 - 1) else 0
 
-        pred_rgb = torch.clamp(pred_rgb, 0.0, 1.0)  # Make sure image pixels are in valid range
-
-        rendered_results["pred_rgb"] = pred_rgb
         return rendered_results
 
     @torch.cuda.nvtx.range("render_pass")

@@ -127,8 +127,24 @@ extern "C" __global__ void __raygen__rg() {
             break;
     }
 
-    const float3 background = getBackgroundColor(lastRayDir);
-    payload.directLight += background;
+    if (payload.rayMissed) {
+        const bool envmap_secondary_only = (params.playgroundOpts & PGRNDRenderEnvmapSecondaryOnly) != 0;
+        const bool is_secondary_ray = (payload.numBounces > 0) || (payload.pbrNumBounces > 0);
+        const bool use_envmap = (!envmap_secondary_only || is_secondary_ray);
+        if (use_envmap) {
+            float3 background = getBackgroundColor(lastRayDir);
+            if (!is_secondary_ray && (params.playgroundOpts & PGRNDRenderEnvmapPrimaryIgnoreIntensity)) {
+                const float intensity = params.envmapIntensity;
+                if (intensity > 1e-6f) {
+                    background *= (1.0f / intensity);
+                }
+            }
+            payload.accumulatedColor += payload.pathThroughput * background;
+            if (params.playgroundOpts & PGRNDRenderEnvmapOpaque) {
+                payload.accumulatedAlpha = 1.0f;
+            }
+        }
+    }
     payload.pathThroughput *= (1.0f - payload.accumulatedAlpha);
     payload.accumulatedColor += payload.pathThroughput * payload.directLight;
     payload.accumulatedAlpha = clamp(payload.accumulatedAlpha, 0.0f, 1.0f);
