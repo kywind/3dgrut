@@ -193,7 +193,6 @@ class Tracer:
         envmap_cdf_cols=None,
         envmap_intensity=1.0,
         envmap_offset=None,
-        gaussian_radiance_scale=1.0,
         max_pbr_bounces=7,
     ):
         if ray_max_t is None:
@@ -267,7 +266,6 @@ class Tracer:
                 envmap_cdf_cols,
                 float(envmap_intensity),
                 envmap_offset,
-                float(gaussian_radiance_scale),
                 max_pbr_bounces,
             )
 

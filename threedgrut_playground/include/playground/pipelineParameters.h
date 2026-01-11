@@ -57,7 +57,6 @@ struct PlaygroundPipelineParameters: PipelineParameters
     PackedTensorAccessor32<float, 2> envmapCdfCols; // Envmap importance sampling CDF (cols), size H x (W+1)
     int envmapWidth;
     int envmapHeight;
-    float gaussianRadianceScale;              // Scales Gaussian radiance contributions (1.0 = unchanged)
 
     // -- Playground specific launch params --
     OptixTraversableHandle triHandle;   // Handle to BVH of mesh primitives: mirrors, glasses, pbr..

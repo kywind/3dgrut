@@ -153,7 +153,6 @@ public:
                 torch::Tensor envmapCdfCols,
                 float envmapIntensity,
                 torch::Tensor envmapOffset,
-                float gaussianRadianceScale,
                 const unsigned int maxPBRBounces);
 
     torch::Tensor denoise(torch::Tensor rayRad);

@@ -308,7 +308,6 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     torch::Tensor envmapCdfCols,
     float envmapIntensity,
     torch::Tensor envmapOffset,
-    float gaussianRadianceScale,
     const unsigned int maxPBRBounces) {
 
     // ----- 3dgrt launch params -----
@@ -368,7 +367,6 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     paramsHost.envmapCdfCols = packed_accessor32<float, 2>(envmapCdfCols);
     paramsHost.envmapWidth = 0;
     paramsHost.envmapHeight = 0;
-    paramsHost.gaussianRadianceScale = gaussianRadianceScale;
     CudaTexture2DFloat4Object cuEnvMap = CudaTexture2DFloat4Object();
     int envmapHeight = envmap.size(0);
     int envmapWidth = envmap.size(1);
