@@ -189,8 +189,11 @@ class Tracer:
         is_sync_materials=True,
         refractive_index=None,
         envmap=None,
+        envmap_cdf_rows=None,
+        envmap_cdf_cols=None,
         envmap_intensity=1.0,
         envmap_offset=None,
+        gaussian_radiance_scale=1.0,
         max_pbr_bounces=7,
     ):
         if ray_max_t is None:
@@ -205,8 +208,13 @@ class Tracer:
             materials = []
         else:
             materials = [self.to_native_pbr_material(m) for m in materials]
+        default_device = ray_o.device
         if envmap is None:
-            envmap = torch.zeros([4, 4, 4], dtype=torch.float32)
+            envmap = torch.zeros([4, 4, 4], dtype=torch.float32, device=default_device)
+        if envmap_cdf_rows is None:
+            envmap_cdf_rows = torch.zeros([1], dtype=torch.float32, device=default_device)
+        if envmap_cdf_cols is None:
+            envmap_cdf_cols = torch.zeros([1, 1], dtype=torch.float32, device=default_device)
         if envmap_intensity is None:
             envmap_intensity = 1.0
         if envmap_offset is None:
@@ -230,6 +238,8 @@ class Tracer:
             sph_degree = gaussians.n_active_features
             min_transmittance = self.conf.render.min_transmittance
             envmap_offset = envmap_offset.contiguous()
+            envmap_cdf_rows = envmap_cdf_rows.contiguous()
+            envmap_cdf_cols = envmap_cdf_cols.contiguous()
 
             (pred_rgb, pred_opacity, pred_dist, pred_normals, hits_count) = self.tracer_wrapper.trace_hybrid(
                 frame_id,
@@ -253,8 +263,11 @@ class Tracer:
                 is_sync_materials,
                 refractive_index,
                 envmap,
+                envmap_cdf_rows,
+                envmap_cdf_cols,
                 float(envmap_intensity),
                 envmap_offset,
+                float(gaussian_radiance_scale),
                 max_pbr_bounces,
             )
 

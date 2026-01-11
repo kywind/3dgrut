@@ -98,6 +98,7 @@ extern "C" __global__ void __raygen__rg() {
         float next_ray_t = payload.rayMissed ? ray_t_max : payload.t_hit;
         float4 volumetricRadDns = traceGaussians(rayData, rayOri, rayDir, 1e-9, next_ray_t, &payload);
         float3 radiance = make_float3(volumetricRadDns.x, volumetricRadDns.y, volumetricRadDns.z);
+        radiance *= params.gaussianRadianceScale;
         float density = volumetricRadDns.w;
 
         // -- Now accumulate the radiance collected along this path:
@@ -238,8 +239,9 @@ static __device__ __inline__ void handleDiffuse(const float3 ray_o, const float3
     // Accumulate all Gaussian particles up to intersection with mesh surface first
     const float4 volumetricRadDns = traceGaussians(*(payload->rayData), ray_o, ray_d, 1e-9, hit_t, payload);
     const float3 volRadiance = make_float3(volumetricRadDns.x, volumetricRadDns.y, volumetricRadDns.z);
+    const float3 scaledRadiance = volRadiance * params.gaussianRadianceScale;
     const float volAlpha = volumetricRadDns.w;
-    payload->accumulatedColor += volRadiance;
+    payload->accumulatedColor += scaledRadiance;
     payload->accumulatedAlpha += volAlpha;
 
     const float3 diffuse = get_diffuse_color(ray_d, normal);
@@ -335,8 +337,13 @@ extern "C" __global__ void __intersection__is() {
 extern "C" __global__ void __anyhit__ah()
 {
     // Enabled only for Gaussian ray tracing
-    if (getNextTraceState() == PGRNDTraceRTGaussiansPass)
+    const unsigned int trace_state = getNextTraceState();
+    if (trace_state == PGRNDTraceRTGaussiansPass)
         anyhitSortVolumetricGS();
+    else if (trace_state == PGRNDTraceShadowPass) {
+        optixSetPayload_0(1);
+        optixTerminateRay();
+    }
 }
 
 extern "C" __global__ void __miss__ms()

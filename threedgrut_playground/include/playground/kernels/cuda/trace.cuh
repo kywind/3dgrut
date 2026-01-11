@@ -31,6 +31,7 @@
 #include <playground/pipelineDefinitions.h>
 #include <playground/pipelineParameters.h>
 #include <playground/kernels/cuda/mathUtils.cuh>
+#include <playground/kernels/cuda/rng.cuh>
 
 extern "C"
 {
@@ -188,6 +189,33 @@ static __device__ __forceinline__ void traceMesh(const float3 rayOri, const floa
     );
 }
 
+static __device__ __forceinline__ bool traceMeshOcclusion(const float3 rayOri, const float3 rayDir,
+                                                          const float tmin, const float tmax)
+{
+    const unsigned int prevState = getNextTraceState();
+    setNextTraceState(PGRNDTraceShadowPass);
+
+    unsigned int hitFlag = 0;
+    unsigned int hitFlag2 = 0;
+    optixTrace(
+        params.triHandle,
+        rayOri,
+        rayDir,
+        tmin,
+        tmax,
+        0.0f,
+        OptixVisibilityMask(255),
+        OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT,
+        0u,
+        1u,
+        0u,
+        hitFlag, hitFlag2
+    );
+
+    setNextTraceState(prevState);
+    return hitFlag != 0;
+}
+
 static __device__ __forceinline__ float4 traceGaussians(
     RayData& rayData,
     const float3& rayOrigin,
@@ -245,6 +273,100 @@ static __device__ __forceinline__ float3 getBackgroundColor(const float3 rayDir)
     float v = 0.5f * (1.0f + sin(phi));
     float4 env = tex2D<float4>(params.envmap, u, v);
     return make_float3(env.x, env.y, env.z);
+}
+
+static __device__ __forceinline__ int sampleEnvmapCdfRow(const float xi, const int height)
+{
+    int left = 0;
+    int right = height;
+    while (left + 1 < right) {
+        const int mid = (left + right) >> 1;
+        if (params.envmapCdfRows[mid] <= xi) {
+            left = mid;
+        } else {
+            right = mid;
+        }
+    }
+    return min(left, height - 1);
+}
+
+static __device__ __forceinline__ int sampleEnvmapCdfCol(const float xi, const int row, const int width)
+{
+    int left = 0;
+    int right = width;
+    while (left + 1 < right) {
+        const int mid = (left + right) >> 1;
+        if (params.envmapCdfCols[row][mid] <= xi) {
+            left = mid;
+        } else {
+            right = mid;
+        }
+    }
+    return min(left, width - 1);
+}
+
+static __device__ __forceinline__ float3 applyEnvmapOffsetInverse(const float3 dir)
+{
+    const float rotY = -params.envmapOffset.x * 2.0f * M_PIf;
+    const float rotX = -2.0f * params.envmapOffset.y * M_PIf;
+
+    float3 rotatedDir;
+    rotatedDir.x = dir.x * cosf(rotY) - dir.z * sinf(rotY);
+    rotatedDir.z = dir.x * sinf(rotY) + dir.z * cosf(rotY);
+    rotatedDir.y = dir.y;
+
+    float3 doubleRotatedDir;
+    doubleRotatedDir.x = rotatedDir.x;
+    doubleRotatedDir.y = rotatedDir.y * cosf(rotX) - rotatedDir.z * sinf(rotX);
+    doubleRotatedDir.z = rotatedDir.y * sinf(rotX) + rotatedDir.z * cosf(rotX);
+
+    return safe_normalize(doubleRotatedDir);
+}
+
+static __device__ __forceinline__ bool sampleEnvmapDirection(unsigned int& rndSeed, float3& wi,
+                                                             float& pdf, float3& radiance)
+{
+    if (params.envmapWidth <= 0 || params.envmapHeight <= 0) {
+        return false;
+    }
+
+    const int width = params.envmapWidth;
+    const int height = params.envmapHeight;
+
+    const float xi_row = rnd(rndSeed);
+    const float xi_col = rnd(rndSeed);
+    const float xi_u = rnd(rndSeed);
+    const float xi_v = rnd(rndSeed);
+
+    const int row = sampleEnvmapCdfRow(xi_row, height);
+    const int col = sampleEnvmapCdfCol(xi_col, row, width);
+
+    const float u = (static_cast<float>(col) + xi_u) / static_cast<float>(width);
+    const float v = (static_cast<float>(row) + xi_v) / static_cast<float>(height);
+
+    const float theta = (2.0f * M_PIf) * u - M_PIf;
+    const float y = 2.0f * v - 1.0f;
+    const float phi = asinf(clamp(y, -1.0f, 1.0f));
+    const float cos_phi = cosf(phi);
+
+    float3 dir;
+    dir.x = cos_phi * sinf(theta);
+    dir.y = sinf(phi);
+    dir.z = cos_phi * cosf(theta);
+
+    wi = applyEnvmapOffsetInverse(dir);
+
+    const float row_prob = params.envmapCdfRows[row + 1] - params.envmapCdfRows[row];
+    const float col_prob = params.envmapCdfCols[row][col + 1] - params.envmapCdfCols[row][col];
+    const float uv_prob = row_prob * col_prob;
+    if (uv_prob <= 0.0f) {
+        pdf = 0.0f;
+        return false;
+    }
+
+    pdf = uv_prob * static_cast<float>(width * height) / (4.0f * M_PIf);
+    radiance = getBackgroundColor(wi);
+    return true;
 }
 
 #endif

@@ -304,8 +304,11 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     bool shouldSyncMaterials,
     torch::Tensor refractiveIndex,
     torch::Tensor envmap,
+    torch::Tensor envmapCdfRows,
+    torch::Tensor envmapCdfCols,
     float envmapIntensity,
     torch::Tensor envmapOffset,
+    float gaussianRadianceScale,
     const unsigned int maxPBRBounces) {
 
     // ----- 3dgrt launch params -----
@@ -361,6 +364,11 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
     paramsHost.triHandle = _playgroundState->gasHandle;
     paramsHost.trace_state = packed_accessor32<int32_t, 4>(traceState);
     paramsHost.envmapIntensity = envmapIntensity;
+    paramsHost.envmapCdfRows = packed_accessor32<float, 1>(envmapCdfRows);
+    paramsHost.envmapCdfCols = packed_accessor32<float, 2>(envmapCdfCols);
+    paramsHost.envmapWidth = 0;
+    paramsHost.envmapHeight = 0;
+    paramsHost.gaussianRadianceScale = gaussianRadianceScale;
     CudaTexture2DFloat4Object cuEnvMap = CudaTexture2DFloat4Object();
     int envmapHeight = envmap.size(0);
     int envmapWidth = envmap.size(1);
@@ -369,6 +377,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
         cuEnvMap.reset(envmap.data_ptr<float>(), envmapHeight, envmapWidth);
         paramsHost.envmap = cuEnvMap.tex();
         paramsHost.envmapOffset = make_float2(envmapOffset.data_ptr<float>()[0], envmapOffset.data_ptr<float>()[1]);
+        paramsHost.envmapWidth = envmapWidth;
+        paramsHost.envmapHeight = envmapHeight;
     }
 
     cudaStream_t cudaStream = at::cuda::getCurrentCUDAStream();

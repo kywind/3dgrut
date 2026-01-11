@@ -958,6 +958,8 @@ class Engine3DGRUT:
         self.envmap_primary_ignore_intensity = False
         """ Enables / disables gaussian rendering """
         self.disable_gaussian_tracing = False
+        """ Scales Gaussian radiance contributions (1.0 = unchanged) """
+        self.gaussian_radiance_scale = 1.0
 
         scene_scale = self.scene_mog.positions.max(dim=0)[0] - self.scene_mog.positions.min(dim=0)[0]
         self.primitives = Primitives(
@@ -1078,6 +1080,7 @@ class Engine3DGRUT:
         envmap = self.environment.get_envmap()
         envmap_offset = self.environment.get_envmap_offset()
         envmap_intensity = self.environment.ibl_intensity
+        envmap_cdf_rows, envmap_cdf_cols = self.environment.get_envmap_cdf()
 
         rendered_results = self.tracer.render_playground(
             gaussians=mog,
@@ -1097,8 +1100,11 @@ class Engine3DGRUT:
             is_sync_materials=self.is_materials_dirty,
             refractive_index=self.primitives.stacked_fields.refractive_index_tensor[:, None],
             envmap=envmap,
+            envmap_cdf_rows=envmap_cdf_rows,
+            envmap_cdf_cols=envmap_cdf_cols,
             envmap_intensity=envmap_intensity,
             envmap_offset=envmap_offset,
+            gaussian_radiance_scale=self.gaussian_radiance_scale,
             max_pbr_bounces=self.max_pbr_bounces,
         )
 

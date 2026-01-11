@@ -226,6 +226,74 @@ static __device__ __inline__ float3 pbr_refract(float3 wi, float3 normal, float 
     return (k < 0.0) ? make_float3(0.0) : eta * wi - (eta * normal_dot_wi + sqrtf(k)) * normal;
 }
 
+static __device__ __inline__ float3 eval_cook_torrance_brdf(
+    const float3 wo,
+    const float3 wi,
+    const float3 normal,
+    const float3 base_color,
+    const float metalness,
+    const float roughness)
+{
+    const float n_dot_wo = positive_dot(normal, wo);
+    const float n_dot_wi = positive_dot(normal, wi);
+    if (n_dot_wo <= 0.0f || n_dot_wi <= 0.0f) {
+        return make_float3(0.0f);
+    }
+
+    const float3 H = normalize(wo + wi);
+    const float wo_dot_h = positive_dot(wo, H);
+
+    const float fresnel_reflect = 0.5f;
+    float3 f0 = make_float3(0.16f * fresnel_reflect * fresnel_reflect);
+    f0 = lerp(f0, base_color, metalness);
+
+    const float3 F = fresnel_schlick(wo_dot_h, f0);
+    const float D = trowbridge_reitz_ggx(H, normal, roughness);
+    const float G = geometry_smith(n_dot_wo, n_dot_wi, roughness);
+
+    const float3 spec = (F * (D * G)) / fmaxf(4.0f * n_dot_wo * n_dot_wi, PBR_EPS);
+    const float3 kd = (make_float3(1.0f) - F) * (1.0f - metalness);
+    const float3 diff = kd * base_color * M_1_PIf;
+    return diff + spec;
+}
+
+static __device__ __inline__ void accumulate_envmap_direct_light(
+    const float3 hit_point,
+    const float3 normal,
+    const float3 wo,
+    const float3 base_color,
+    const float metalness,
+    const float roughness,
+    const float transmission,
+    unsigned int& rndSeed,
+    HybridRayPayload* payload)
+{
+    if (transmission > 0.0f) {
+        return;
+    }
+
+    float3 wi;
+    float pdf = 0.0f;
+    float3 env_radiance;
+    if (!sampleEnvmapDirection(rndSeed, wi, pdf, env_radiance)) {
+        return;
+    }
+
+    const float n_dot_wi = positive_dot(normal, wi);
+    if (n_dot_wi <= 0.0f || pdf <= 0.0f) {
+        return;
+    }
+
+    const float3 shadow_origin = hit_point + normal * 1e-4f;
+    if (traceMeshOcclusion(shadow_origin, wi, TRACE_MESH_TMIN, TRACE_MESH_TMAX)) {
+        return;
+    }
+
+    const float3 brdf = eval_cook_torrance_brdf(wo, wi, normal, base_color, metalness, roughness);
+    const float3 contrib = brdf * env_radiance * (n_dot_wi / fmaxf(pdf, PBR_EPS));
+    payload->accumulatedColor += payload->pathThroughput * contrib;
+}
+
 static __device__ __inline__ unsigned int getFrameNumber()
 {
     const uint3 idx = optixGetLaunchIndex();
@@ -434,6 +502,18 @@ static __device__ __inline__ void sampled_cook_torrance_brdf(
         new_ray_dir = ray_d;
         return;
     }
+
+    accumulate_envmap_direct_light(
+        hit_point,
+        normal,
+        wo,
+        diffuse,
+        metallic,
+        roughness,
+        transmission,
+        rndSeed,
+        payload
+    );
 
     const float3 nextScatter = sampled_microfacet_brdf(
         wo,

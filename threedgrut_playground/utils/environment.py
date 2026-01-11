@@ -64,6 +64,9 @@ class Environment:
         self.envmap = None
         """ Rotation of envmap along spherical (theta, phi) axes """
         self.envmap_offset = [0.0, 0.0]
+        """ Envmap importance sampling CDFs (rows/cols) """
+        self.envmap_cdf_rows = None
+        self.envmap_cdf_cols = None
 
         # IO
         """ Path to a folder containing .hdr files """
@@ -109,7 +112,8 @@ class Environment:
     def set_env(self, env_name: Optional[str] = None) -> None:
         if env_name == "Model-Background":
             self._hdr_data = None
-            self.envmap = np.zeros([512, 512, 4], dtype=np.float32)
+            self.envmap = torch.zeros([512, 512, 4], dtype=torch.float32, device=self.device)
+            self._update_cdf()
         elif env_name == "Black":
             self._hdr_data = np.zeros([512, 512, 4], dtype=np.float32)
             self._update()
@@ -130,6 +134,45 @@ class Environment:
         envmap = torch.tensor(hdr, device=self.device, dtype=torch.float32)
         pad = envmap.new_ones(envmap.shape[0], envmap.shape[1], 1)
         self.envmap = torch.cat([envmap, pad], dim=-1)
+        self._update_cdf()
+
+    def _update_cdf(self) -> None:
+        if self.envmap is None:
+            self.envmap_cdf_rows = None
+            self.envmap_cdf_cols = None
+            return
+
+        env_rgb = self.envmap[..., :3]
+        if env_rgb.numel() == 0:
+            self.envmap_cdf_rows = None
+            self.envmap_cdf_cols = None
+            return
+
+        luminance = 0.2126 * env_rgb[:, :, 0] + 0.7152 * env_rgb[:, :, 1] + 0.0722 * env_rgb[:, :, 2]
+        luminance = torch.clamp(luminance, min=0.0)
+        height, width = luminance.shape
+
+        row_sum = luminance.sum(dim=1)
+        total = row_sum.sum()
+
+        cdf_rows = torch.zeros(height + 1, device=env_rgb.device, dtype=torch.float32)
+        if total > 0:
+            cdf_rows[1:] = torch.cumsum(row_sum, dim=0) / total
+        else:
+            cdf_rows[1:] = torch.arange(1, height + 1, device=env_rgb.device, dtype=torch.float32) / float(height)
+
+        cdf_cols = torch.zeros((height, width + 1), device=env_rgb.device, dtype=torch.float32)
+        if width > 0:
+            row_sum_safe = row_sum.clone()
+            row_sum_safe[row_sum_safe <= 0.0] = 1.0
+            weights = luminance / row_sum_safe[:, None]
+            zero_mask = row_sum <= 0.0
+            if torch.any(zero_mask):
+                weights[zero_mask] = 1.0 / float(width)
+            cdf_cols[:, 1:] = torch.cumsum(weights, dim=1)
+
+        self.envmap_cdf_rows = cdf_rows
+        self.envmap_cdf_cols = cdf_cols
 
     def tonemap(self, hdr):
 
@@ -167,6 +210,12 @@ class Environment:
             self._update()
             self._cache_last_update_details()
         return self.envmap
+
+    def get_envmap_cdf(self):
+        if self._is_dirty():
+            self._update()
+            self._cache_last_update_details()
+        return self.envmap_cdf_rows, self.envmap_cdf_cols
 
     def get_envmap_offset(self) -> torch.Tensor:
         return torch.tensor(self.envmap_offset)

@@ -28,7 +28,8 @@ enum PlaygroundTraceState
 {
     PGRNDTracePrimitivesPass = 0,        // Tracing mirrors, glasses, meshes..
     PGRNDTraceRTGaussiansPass = 1,       // Tracing Gaussians with volumetric rendering
-    PGRNDTraceTerminate = 2              // Terminate current ray
+    PGRNDTraceTerminate = 2,             // Terminate current ray
+    PGRNDTraceShadowPass = 3             // Shadow/occlusion rays (no payload updates)
 };
 
 enum PlaygroundRenderOptions

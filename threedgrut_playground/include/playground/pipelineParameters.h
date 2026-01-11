@@ -53,6 +53,11 @@ struct PlaygroundPipelineParameters: PipelineParameters
     cudaTextureObject_t envmap;               // for envmaps and solid background color
     float2 envmapOffset;                      // rotates env map along (theta, phi) axis
     float envmapIntensity;                    // IBL intensity used to pre-scale envmap
+    PackedTensorAccessor32<float, 1> envmapCdfRows; // Envmap importance sampling CDF (rows), size H+1
+    PackedTensorAccessor32<float, 2> envmapCdfCols; // Envmap importance sampling CDF (cols), size H x (W+1)
+    int envmapWidth;
+    int envmapHeight;
+    float gaussianRadianceScale;              // Scales Gaussian radiance contributions (1.0 = unchanged)
 
     // -- Playground specific launch params --
     OptixTraversableHandle triHandle;   // Handle to BVH of mesh primitives: mirrors, glasses, pbr..
