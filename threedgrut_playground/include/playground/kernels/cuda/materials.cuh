@@ -257,7 +257,7 @@ static __device__ __inline__ float3 eval_cook_torrance_brdf(
     return diff + spec;
 }
 
-static __device__ __inline__ void accumulate_envmap_direct_light(
+static __device__ __inline__ float3 accumulate_envmap_direct_light(
     const float3 hit_point,
     const float3 normal,
     const float3 wo,
@@ -265,33 +265,31 @@ static __device__ __inline__ void accumulate_envmap_direct_light(
     const float metalness,
     const float roughness,
     const float transmission,
-    unsigned int& rndSeed,
-    HybridRayPayload* payload)
+    unsigned int& rndSeed)
 {
     if (transmission > 0.0f) {
-        return;
+        return make_float3(0.0f);
     }
 
     float3 wi;
     float pdf = 0.0f;
     float3 env_radiance;
     if (!sampleEnvmapDirection(rndSeed, wi, pdf, env_radiance)) {
-        return;
+        return make_float3(0.0f);
     }
 
     const float n_dot_wi = positive_dot(normal, wi);
     if (n_dot_wi <= 0.0f || pdf <= 0.0f) {
-        return;
+        return make_float3(0.0f);
     }
 
     const float3 shadow_origin = hit_point + normal * 1e-4f;
     if (traceMeshOcclusion(shadow_origin, wi, TRACE_MESH_TMIN, TRACE_MESH_TMAX)) {
-        return;
+        return make_float3(0.0f);
     }
 
     const float3 brdf = eval_cook_torrance_brdf(wo, wi, normal, base_color, metalness, roughness);
-    const float3 contrib = brdf * env_radiance * (n_dot_wi / fmaxf(pdf, PBR_EPS));
-    payload->accumulatedColor += payload->pathThroughput * contrib;
+    return brdf * env_radiance * (n_dot_wi / fmaxf(pdf, PBR_EPS));
 }
 
 static __device__ __inline__ unsigned int getFrameNumber()
@@ -503,7 +501,7 @@ static __device__ __inline__ void sampled_cook_torrance_brdf(
         return;
     }
 
-    accumulate_envmap_direct_light(
+    const float3 env_direct = accumulate_envmap_direct_light(
         hit_point,
         normal,
         wo,
@@ -511,8 +509,7 @@ static __device__ __inline__ void sampled_cook_torrance_brdf(
         metallic,
         roughness,
         transmission,
-        rndSeed,
-        payload
+        rndSeed
     );
 
     const float3 nextScatter = sampled_microfacet_brdf(
@@ -527,7 +524,7 @@ static __device__ __inline__ void sampled_cook_torrance_brdf(
         rndSeed,
         payload
     );
-    const float3 nextEmissive = emissive;
+    const float3 nextEmissive = emissive + env_direct;
     payload->bsdfValue = maxf3(nextScatter, make_float3(0.0));
     payload->nextEmissive = nextEmissive;
 }
