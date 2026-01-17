@@ -78,6 +78,12 @@ class USDZExporter(ModelExporter):
                 logger.warning(f"Failed to apply normalizing transform: {e}")
                 normalizing_transform = np.eye(4)
 
+        conversion_matrix = None
+        if hasattr(conf.export_usdz, "conversion_matrix") and conf.export_usdz.conversion_matrix is not None:
+            conversion_matrix = np.array(conf.export_usdz.conversion_matrix, dtype=np.float64)
+            if conversion_matrix.size == 16:
+                conversion_matrix = conversion_matrix.reshape(4, 4)
+
         # Set up common parameters
         template_params = {
             "positions": positions,
@@ -130,7 +136,7 @@ class USDZExporter(ModelExporter):
         model_file = NamedSerialized(filename=output_path.stem + ".nurec", serialized=buffer.getvalue())
 
         # Create USD representations
-        gauss_usd = serialize_nurec_usd(model_file, positions, normalizing_transform)
+        gauss_usd = serialize_nurec_usd(model_file, positions, normalizing_transform, conversion_matrix)
         default_usd = serialize_usd_default_layer(gauss_usd)
 
         # Write the final USDZ file

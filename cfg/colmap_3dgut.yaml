@@ -43,6 +43,11 @@ export_usdz:
   enabled: false
   path: ""
   apply_normalizing_transform: true
+  conversion_matrix:
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
 
 model:
   density_activation: sigmoid

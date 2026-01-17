@@ -89,7 +89,10 @@ def serialize_usd_stage_to_bytes(stage: Usd.Stage) -> bytes:
 
 
 def serialize_nurec_usd(
-    model_file, positions: np.ndarray, normalizing_transform: np.ndarray = np.eye(4)
+    model_file,
+    positions: np.ndarray,
+    normalizing_transform: np.ndarray = np.eye(4),
+    conversion_matrix: np.ndarray | None = None,
 ) -> NamedUSDStage:
     """
     Create a USD file for the 3DGS model.
@@ -143,6 +146,10 @@ def serialize_nurec_usd(
     default_conv_tf = np.array(
         [[-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
     )
+    if conversion_matrix is not None:
+        if conversion_matrix.shape != (4, 4):
+            raise ValueError("conversion_matrix must be a 4x4 matrix")
+        default_conv_tf = conversion_matrix
 
     normalizing_inverse = np.linalg.inv(normalizing_transform)
     corrected_matrix = normalizing_inverse @ default_conv_tf
